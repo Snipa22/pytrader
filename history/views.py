@@ -81,36 +81,47 @@ def get_line_chart(pts, symbol, parameter):
                              )
     return pivcht
 
-def get_data(request,symbol,table_name='history_predictiontest',table=PredictionTest):
-    query = "select * from {} WHERE type = 'mock' and symbol = '{}'".format(table_name,symbol)
-    i = 0
-    for key,value in request.GET.items():
-        if key not in ['days_ago','hours_ago']:
-          i+=1
-          query = query +  " and {} = '{}' ".format(key,value)
-    try:
-        pts = table.objects.raw(query)
-        pt_pks = [pt.pk for pt in pts]
-    except Exception:
-        i = 0
-        pass;
-    has_filtered = i > 0
-    if has_filtered:
-        pts = table.objects.filter(type='mock',symbol=symbol,pk__in=pt_pks).all()
+
+def get_time_delta(request):
+    days_ago = request.GET.get('days_ago', False)
+    hours_ago = request.GET.get('hours_ago', False)
+    if days_ago and not hours_ago:
+        time_delta_change = datetime.timedelta(days=int(days_ago))
+    elif hours_ago and not days_ago:
+        time_delta_change = datetime.timedelta(hours=int(hours_ago))
+    elif days_ago and hours_ago:
+        time_delta_change = datetime.timedelta(days=int(days_ago), hours=int(hours_ago))
     else:
-        pts = table.objects.filter(type='mock',symbol=symbol).all()
-    days_ago=request.GET.get('days_ago',False)
-    hours_ago=request.GET.get('hours_ago',False)
-    if not hours_ago and not days_ago:
-      hours_ago=6
-    if days_ago:
-        pts =  pts.filter(created_on__gte=(timezone.now() - datetime.timedelta(days=int(days_ago))))
-    if hours_ago:
-        pts =  pts.filter(created_on__gte=(timezone.now() - datetime.timedelta(hours=int(hours_ago))))
+        time_delta_change = datetime.timedelta(hours=6)
+    return time_delta_change
 
-    symbols_that_exist = table.objects.values_list('symbol',flat=True).distinct()
 
-    return pts, symbols_that_exist
+def get_data(request, symbol, table_name='history_predictiontest', table=PredictionTest):
+    query = "select id from {} WHERE type = 'mock' and symbol = '{}'".format(table_name, symbol)
+    has_filtered = False
+    time_delta_change = get_time_delta(request)
+
+    for key, value in request.GET.items():
+        if key not in ['days_ago', 'hours_ago']:
+            has_filtered = True
+            query += " and {} = '{}' ".format(key, value)
+    query += "and created_on >= {}".format(timezone.now()-time_delta_change)
+    if has_filtered:
+        try:
+            pts = table.objects.raw(query)
+            pt_pks = [pt.id for pt in pts]
+            has_filtered = True
+        except Exception:
+            has_filtered = False
+    if has_filtered:
+        pts = table.objects.filter(type='mock', symbol=symbol, pk__in=pt_pks)
+    else:
+        pts = table.objects.filter(type='mock', symbol=symbol)
+    pts = pts.filter(created_on__gte=(timezone.now() - time_delta_change))
+    symbols_that_exist = table.objects.values_list('symbol', flat=True).distinct()
+    symbols_that_exist = symbols_that_exist.filter(created_on__gte=(timezone.now() - time_delta_change))
+
+    return pts.all(), symbols_that_exist
 
 
 def get_balance_breakdown_chart(bs,denom,symbol,start_time):
@@ -445,89 +456,96 @@ def nn_chart_view(request):
 @staff_member_required
 def c_chart_view(request):
 
-    #setup
-    symbol=request.GET.get('symbol','BTC_ETH')
+    # setup
+    symbol = request.GET.get('symbol', 'BTC_ETH')
     i = 0
     charts = []
     chartnames = []
     metas = []
-    symbols = Price.objects.values('symbol').distinct().order_by('symbol').values_list('symbol',flat=True)
+    time_delta_change = get_time_delta(request)
+    symbols = Price.objects.values('symbol').distinct().order_by('symbol').values_list('symbol', flat=True)
+    symbols = symbols.filter(created_on__gte=(timezone.now() - time_delta_change))
 
-    #get data
-    pts, symbols_that_exist = get_data(request,symbol,'history_classifiertest',ClassifierTest)
+    # get data
+    pts, symbols_that_exist = get_data(request, symbol, 'history_classifiertest', ClassifierTest)  # 25 seconds.
 
     if len(pts) == 0:
-      return render_to_response('notfound.html')
+        return render_to_response('notfound.html')
 
     trainer_last_seen = None
     try:
         last_pt = ClassifierTest.objects.filter(type='mock').order_by('-created_on').first()
         is_trainer_running = last_pt.created_on > (get_time() - datetime.timedelta(minutes=int(15)))
-        trainer_last_seen = (last_pt.created_on- datetime.timedelta(hours=int(7))).strftime('%a %H:%M')
-    except Exception:
+        trainer_last_seen = (last_pt.created_on - datetime.timedelta(hours=int(7))).strftime('%a %H:%M')
+    except Exception:  # noqa
         is_trainer_running = False
 
-
     meta = {
-      'count' : int(round(pts.count(),0)),
-      'avg' : round(pts.aggregate(Avg('percent_correct'))['percent_correct__avg'],0),
-      'median' : round(median_value(pts,'percent_correct'),0),
-      'max' : round(pts.aggregate(Max('percent_correct'))['percent_correct__max'],0),
-      'min' : round(pts.aggregate(Min('percent_correct'))['percent_correct__min'],0),
+        'count': int(round(pts.count(), 0)),
+        'avg': round(pts.aggregate(Avg('percent_correct'))['percent_correct__avg'], 0),  # 1.75
+        'median': round(median_value(pts, 'percent_correct'), 0),  # 1 second
+        'max': round(pts.aggregate(Max('percent_correct'))['percent_correct__max'], 0),
+        'min': round(pts.aggregate(Min('percent_correct'))['percent_correct__min'], 0),
     }
 
     #get global chart information
-    for parameter in ['percent_correct' ,'score']:
-      i = i + 1
-      cht = get_line_chart(pts,symbol,parameter)
-      charts.append(cht)
-      options = []
-      chartnames.append("container"+str(i))
-      metas.append({
-        'name' : parameter,
-        'container_class' : 'show',
-        'class' : "container"+str(i),
-        'options' : options,
+    for parameter in ['percent_correct', 'score']:
+        i += 1
+        cht = get_line_chart(pts, symbol, parameter)
+        charts.append(cht)
+        options = []
+        chartnames.append("container"+str(i))
+        metas.append({
+            'name': parameter,
+            'container_class': 'show',
+            'class': "container"+str(i),
+            'options': options,
         })
 
     # get parameter distribution charts 
-    parameters = ['name','datasetinputs','granularity','minutes_back','timedelta_back_in_granularity_increments','time','prediction_size']
+    parameters = ['name', 'datasetinputs', 'granularity', 'minutes_back',
+                  'timedelta_back_in_granularity_increments', 'time', 'prediction_size']
     for x_axis in parameters:
-        i = i + 1
+        i += 1
         cht = get_scatter_chart(pts,x_axis,symbol)
         charts.append(cht)
         options_dict = pts.values(x_axis).annotate(Avg('percent_correct')).annotate(Count('pk'))
-        options = [ (x_axis, obj[x_axis], int(round(obj['percent_correct__avg'],0)), int(round(obj['pk__count'],0)) ) for obj in options_dict ]
+        options = [(x_axis, obj[x_axis], int(round(obj['percent_correct__avg'], 0)),
+                    int(round(obj['pk__count'], 0))) for obj in options_dict]
         options.sort(key=lambda x: x[1])
         the_max = max([option[2] for option in options])
         for k in range(len(options)):
-            options[k] = options[k] + (("max" if options[k][2] == the_max else "notmax") + " " + ("warning" if options[k][3] < 5 else "nowarning"),)
+            options[k] = options[k] + (("max" if options[k][2] == the_max else "notmax") +
+                                       " " + ("warning" if options[k][3] < 5 else "nowarning"),)
         chartnames.append("container"+str(i))
         metas.append({
-          'name' : x_axis,
-          'container_class' : 'show' if len(options) > 1 else 'noshow',
-          'class' : "container"+str(i),
-          'options' : options,
+          'name': x_axis,
+          'container_class': 'show' if len(options) > 1 else 'noshow',
+          'class': "container"+str(i),
+          'options': options,
           })
 
+    pts_list = []
+    for pt in pts.order_by('percent_correct'):
+        pts_list.append({'pk': int(pt.pk), 'created_on': pt.created_on, 'percent_correct': pt.percent_correct})
 
-    #Step 3: Send the chart object to the template.
-    return render_to_response('c_chart.html',{ 
-        'pts' : pts.order_by('percent_correct'),
-        'ticker' : symbol,
-        'symbols' : symbols,
-        'meta' : meta, 
-        'days_ago' : [1,2,3,4,5,10,15,30], 
-        'hours_ago' : [1,2,3,6,12,24], 
-        'getparams' : getify(request.GET), 
+    # Step 3: Send the chart object to the template.
+    return render_to_response('c_chart.html', {
+        'pts': pts_list,
+        'ticker': symbol,
+        'symbols': symbols,
+        'meta': meta,
+        'days_ago': [1, 2, 3, 4, 5, 10, 15, 30],
+        'hours_ago': [1, 2, 3, 6, 12, 24],
+        'getparams': getify(request.GET),
         'charts': charts, 
-        'metas' : metas, 
-        'chartnames' : chartnames, 
-        'chartnamesstr' : ",".join(chartnames),
-        'is_trainer_running' : is_trainer_running, 
-        'trainer_last_seen' : trainer_last_seen,
-        'symbols_that_exist' : symbols_that_exist,
-    })
+        'metas': metas,
+        'chartnames': chartnames,
+        'chartnamesstr': ",".join(chartnames),
+        'is_trainer_running': is_trainer_running,
+        'trainer_last_seen': trainer_last_seen,
+        'symbols_that_exist': symbols_that_exist,
+    })  # 44 Seconds
 
 
 @staff_member_required
