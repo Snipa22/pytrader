@@ -513,9 +513,11 @@ def c_chart_view(request):
     if not pts:
         return render_to_response('notfound.html')
 
+    print("Converting db to a dict")
     pts_master_list = [x for x in pts.values()]
     pts_values = [x for x['percent_correct'] in pts_master_list]
     pts_values.sort()
+    print("DB conversion complete")
 
     trainer_last_seen = None
     try:
@@ -537,7 +539,7 @@ def c_chart_view(request):
     # get global chart information
     for parameter in ['percent_correct', 'score']:
         i += 1
-        cht = get_line_chart_dict(pts_master_list, parameter)
+        cht = get_line_chart(pts, symbol, parameter)
         charts.append(cht)
         options = []
         chartnames.append("container"+str(i))
@@ -563,7 +565,7 @@ def c_chart_view(request):
     print("Running distribution charts for scatter.")
     for x_axis in parameters.keys():
         i += 1
-        cht = get_scatter_chart(pts_master_list, x_axis, symbol)
+        cht = get_scatter_chart(pts, x_axis, symbol)
         charts.append(cht)
         options = []
         for k, v in parameters[x_axis]:
