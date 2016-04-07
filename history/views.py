@@ -481,7 +481,7 @@ def c_chart_view(request):
 
     print("Converting db to a dict")
     pts_master_list = [x for x in pts.values()]
-    pts_values = [x for x['percent_correct'] in pts_master_list]
+    pts_values = [x['percent_correct'] for x in pts_master_list]
     pts_values.sort()
     print("DB conversion complete")
 
