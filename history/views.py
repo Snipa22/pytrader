@@ -521,7 +521,7 @@ def c_chart_view(request):
     parameters = {'name': {}, 'datasetinputs': {}, 'granularity': {}, 'minutes_back': {},
                   'timedelta_back_in_granularity_increments': {}, 'time': {}, 'prediction_size': {}}
     for entry in pts_master_list:
-        for k, v in entry:
+        for k, v in entry.iteritems():
             if k in parameters.keys():
                 if v not in parameters[k].keys():
                     parameters[k][v] = {'count': 0, 'total': 0.0}
