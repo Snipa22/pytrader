@@ -88,40 +88,6 @@ def get_line_chart(pts, symbol, parameter):
     )
     return pivcht
 
-
-def get_line_chart_dict(pts, parameter):
-    # sorting hack
-    new_list = []
-    for pt in pts:
-        if pt['percent_correct'] == 100.0:
-            pt['percent_correct'] = 99.9
-        new_list.append(pt)
-    pts = sorted(new_list, cmp=lambda x, y: cmp(x[parameter], y[parameter]))
-
-    ds = PivotDataPool(
-        series=[
-            {'options': {
-                'source': pts,
-                'categories': parameter},
-                'terms': {
-                    'tot_items': Count(parameter)}}])
-
-    pivcht = PivotChart(
-        datasource=ds,
-        series_options=[
-            {'options': {
-                'type': 'column'},
-                'terms': ['tot_items']}],
-        chart_options=
-        {'title': {
-            'text': 'Distribution of ' + parameter + ' %s'},
-            'xAxis': {
-                'title': {
-                    'text': 'Percent'}}}
-    )
-    return pivcht
-
-
 def get_time_delta(request):
     days_ago = request.GET.get('days_ago', False)
     hours_ago = request.GET.get('hours_ago', False)
