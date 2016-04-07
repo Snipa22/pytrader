@@ -13,6 +13,7 @@ from django.utils import timezone
 from history.tools import median_value, get_cost_basis
 from django.conf import settings
 
+
 def getify(dic):
     st =str()
     for K,V in dic.iteritems():
@@ -23,62 +24,100 @@ def getify(dic):
             st += K+'='+V+'&'
     return st.rstrip('&')
 
-def get_scatter_chart(pts, x_axis, symbol):
-        data = \
-            DataPool(
-               series=
-                [{'options': {
-                   'source': pts},
-                  'terms': [
-                    x_axis,
-                    'percent_correct']}
-                 ])
 
-        #Step 2: Create the Chart object
+def get_scatter_chart(pts, x_axis, symbol):
+        data = DataPool(
+            series=
+            [
+                {'options': {
+                    'source': pts},
+                    'terms': [
+                        x_axis,
+                        'percent_correct']}
+            ]
+        )
+
+        # Step 2: Create the Chart object
         cht = Chart(
-                datasource = data,
-                series_options =
-                  [{'options':{
-                      'type': 'scatter'},
-                    'terms':{
-                      x_axis: [
-                        'percent_correct']
-                      }}],
-                chart_options =
-                  {'title': {
-                       'text': '{} percent correct by {}'.format(symbol, x_axis)},
-                   'xAxis': {
-                        'title': {
-                           'text': x_axis}}})
+            datasource=data,
+            series_options=
+            [
+                {'options':
+                    {'type': 'scatter'},
+                    'terms': {x_axis: ['percent_correct']}
+                }
+            ],
+            chart_options=
+            {
+                'title': {'text': '{} percent correct by {}'.format(symbol, x_axis)},
+                'xAxis': {
+                    'title': {'text': x_axis}
+                }
+            }
+        )
         return cht
 
+
 def get_line_chart(pts, symbol, parameter):
-    #sorting hack
+    #s orting hack
     for pt in pts:
-      if pt.percent_correct == 100.0:
-        pt.percent_correct = 99.9
+        if pt.percent_correct == 100.0:
+            pt.percent_correct = 99.9
 
     ds = PivotDataPool(
-          series= [
-           {'options':{
-              'source': pts.order_by('-'+parameter).all(),
-              'categories': parameter },
-            'terms': {
-              'tot_items':Count(parameter)}}])
+        series=[
+            {'options': {
+                'source': pts.order_by('-' + parameter).all(),
+                'categories': parameter},
+                'terms': {
+                    'tot_items': Count(parameter)}}])
 
     pivcht = PivotChart(
-              datasource = ds, 
-              series_options = [
-                {'options': {
-                   'type': 'column'},
-                 'terms': ['tot_items']}],
-               chart_options =
-                    {'title': {
-                         'text': 'Distribution of '+parameter+' %s'},
-                     'xAxis': {
-                          'title': {
-                             'text': 'Percent'}}}
-                             )
+        datasource=ds,
+        series_options=[
+            {'options': {
+                'type': 'column'},
+                'terms': ['tot_items']}],
+        chart_options=
+        {'title': {
+            'text': 'Distribution of ' + parameter + ' %s'},
+            'xAxis': {
+                'title': {
+                    'text': 'Percent'}}}
+    )
+    return pivcht
+
+
+def get_line_chart_dict(pts, parameter):
+    # sorting hack
+    new_list = []
+    for pt in pts:
+        if pt['percent_correct'] == 100.0:
+            pt['percent_correct'] = 99.9
+        new_list.append(pt)
+    pts = sorted(new_list, cmp=lambda x, y: cmp(x[parameter], y[parameter]))
+
+    ds = PivotDataPool(
+        series=[
+            {'options': {
+                'source': pts,
+                'categories': parameter},
+                'terms': {
+                    'tot_items': Count(parameter)}}])
+
+    pivcht = PivotChart(
+        datasource=ds,
+        series_options=[
+            {'options': {
+                'type': 'column'},
+                'terms': ['tot_items']}],
+        chart_options=
+        {'title': {
+            'text': 'Distribution of ' + parameter + ' %s'},
+            'xAxis': {
+                'title': {
+                    'text': 'Percent'}}}
+    )
     return pivcht
 
 
@@ -453,6 +492,7 @@ def nn_chart_view(request):
         'symbols_that_exist' : symbols_that_exist,
     })
 
+
 @staff_member_required
 def c_chart_view(request):
 
@@ -469,8 +509,10 @@ def c_chart_view(request):
     # get data
     pts, symbols_that_exist = get_data(request, symbol, 'history_classifiertest', ClassifierTest)  # 25 seconds.
 
-    if len(pts) == 0:
+    if not pts:
         return render_to_response('notfound.html')
+
+    pts_master_list = [x for x in pts.values()]
 
     trainer_last_seen = None
     try:
@@ -488,10 +530,10 @@ def c_chart_view(request):
         'min': round(pts.aggregate(Min('percent_correct'))['percent_correct__min'], 0),
     }
 
-    #get global chart information
+    # get global chart information
     for parameter in ['percent_correct', 'score']:
         i += 1
-        cht = get_line_chart(pts, symbol, parameter)
+        cht = get_line_chart_dict(pts_master_list, parameter)
         charts.append(cht)
         options = []
         chartnames.append("container"+str(i))
@@ -502,16 +544,25 @@ def c_chart_view(request):
             'options': options,
         })
 
-    # get parameter distribution charts 
-    parameters = ['name', 'datasetinputs', 'granularity', 'minutes_back',
-                  'timedelta_back_in_granularity_increments', 'time', 'prediction_size']
-    for x_axis in parameters:
+    # get parameter distribution charts
+    parameters = {'name': {}, 'datasetinputs': {}, 'granularity': {}, 'minutes_back': {},
+                  'timedelta_back_in_granularity_increments': {}, 'time': {}, 'prediction_size': {}}
+    for entry in pts_master_list:
+        for k, v in entry:
+            if k in parameters.keys():
+                v = str(int(round(v, 0)))
+                if v not in parameters[k].keys():
+                    parameters[k][v] = {'count': 0, 'total': 0.0}
+                parameters[k][v]['count'] += 1
+                parameters[k][v]['total_correct'] += entry['precent_correct']
+
+    for x_axis in parameters.keys():
         i += 1
-        cht = get_scatter_chart(pts,x_axis,symbol)
+        cht = get_scatter_chart(pts_master_list, x_axis, symbol)
         charts.append(cht)
-        options_dict = pts.values(x_axis).annotate(Avg('percent_correct')).annotate(Count('pk'))
-        options = [(x_axis, obj[x_axis], int(round(obj['percent_correct__avg'], 0)),
-                    int(round(obj['pk__count'], 0))) for obj in options_dict]
+        options = []
+        for k, v in parameters[x_axis]:
+            options.append((x_axis, k, int(round(v['total_correct']/v['count'], 0)), v['count']))
         options.sort(key=lambda x: x[1])
         the_max = max([option[2] for option in options])
         for k in range(len(options)):
@@ -526,7 +577,7 @@ def c_chart_view(request):
           })
 
     pts_list = []
-    for pt in pts.order_by('percent_correct'):
+    for pt in sorted(pts_master_list, cmp=lambda x,y: cmp(x['percent_correct'], y['percent_correct'])):
         pts_list.append({'pk': int(pt.pk), 'created_on': pt.created_on, 'percent_correct': pt.percent_correct})
 
     # Step 3: Send the chart object to the template.
