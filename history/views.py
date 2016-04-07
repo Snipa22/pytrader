@@ -12,6 +12,7 @@ import operator
 from django.utils import timezone
 from history.tools import median_value, get_cost_basis
 from django.conf import settings
+from numpy import mean, median
 
 
 def getify(dic):
@@ -513,6 +514,8 @@ def c_chart_view(request):
         return render_to_response('notfound.html')
 
     pts_master_list = [x for x in pts.values()]
+    pts_values = [x for x['percent_correct'] in pts_master_list]
+    pts_values.sort()
 
     trainer_last_seen = None
     try:
@@ -524,12 +527,13 @@ def c_chart_view(request):
 
     meta = {
         'count': int(round(pts.count(), 0)),
-        'avg': round(pts.aggregate(Avg('percent_correct'))['percent_correct__avg'], 0),  # 1.75
-        'median': round(median_value(pts, 'percent_correct'), 0),  # 1 second
-        'max': round(pts.aggregate(Max('percent_correct'))['percent_correct__max'], 0),
-        'min': round(pts.aggregate(Min('percent_correct'))['percent_correct__min'], 0),
+        'avg': round(mean(pts_values), 0),  # 1.75
+        'median': round(median(pts_values), 0),  # 1 second
+        'max': round(pts_values[:-1], 0),
+        'min': round(pts_values[0], 0),
     }
 
+    print("Running distribution charts for line.")
     # get global chart information
     for parameter in ['percent_correct', 'score']:
         i += 1
@@ -544,18 +548,19 @@ def c_chart_view(request):
             'options': options,
         })
 
+    print("Doing math for scatter charts")
     # get parameter distribution charts
     parameters = {'name': {}, 'datasetinputs': {}, 'granularity': {}, 'minutes_back': {},
                   'timedelta_back_in_granularity_increments': {}, 'time': {}, 'prediction_size': {}}
     for entry in pts_master_list:
         for k, v in entry:
             if k in parameters.keys():
-                v = str(int(round(v, 0)))
                 if v not in parameters[k].keys():
                     parameters[k][v] = {'count': 0, 'total': 0.0}
                 parameters[k][v]['count'] += 1
                 parameters[k][v]['total_correct'] += entry['precent_correct']
 
+    print("Running distribution charts for scatter.")
     for x_axis in parameters.keys():
         i += 1
         cht = get_scatter_chart(pts_master_list, x_axis, symbol)
@@ -576,10 +581,12 @@ def c_chart_view(request):
           'options': options,
           })
 
+    print("Sorting the results for response rendering")
     pts_list = []
     for pt in sorted(pts_master_list, cmp=lambda x,y: cmp(x['percent_correct'], y['percent_correct'])):
         pts_list.append({'pk': int(pt.pk), 'created_on': pt.created_on, 'percent_correct': pt.percent_correct})
 
+    print("Sending the response!")
     # Step 3: Send the chart object to the template.
     return render_to_response('c_chart.html', {
         'pts': pts_list,
