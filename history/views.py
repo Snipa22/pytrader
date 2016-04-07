@@ -497,7 +497,7 @@ def c_chart_view(request):
         'count': int(round(pts.count(), 0)),
         'avg': round(mean(pts_values), 0),  # 1.75
         'median': round(median(pts_values), 0),  # 1 second
-        'max': round(pts_values[:-1], 0),
+        'max': round(pts_values[-1], 0),
         'min': round(pts_values[0], 0),
     }
 
