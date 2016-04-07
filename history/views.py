@@ -526,7 +526,7 @@ def c_chart_view(request):
                 if v not in parameters[k].keys():
                     parameters[k][v] = {'count': 0, 'total_correct': 0.0}
                 parameters[k][v]['count'] += 1
-                parameters[k][v]['total_correct'] += entry['precent_correct']
+                parameters[k][v]['total_correct'] += entry['percent_correct']
 
     print("Running distribution charts for scatter.")
     for x_axis in parameters.keys():
