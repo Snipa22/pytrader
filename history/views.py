@@ -524,7 +524,7 @@ def c_chart_view(request):
         for k, v in entry.iteritems():
             if k in parameters.keys():
                 if v not in parameters[k].keys():
-                    parameters[k][v] = {'count': 0, 'total': 0.0}
+                    parameters[k][v] = {'count': 0, 'total_correct': 0.0}
                 parameters[k][v]['count'] += 1
                 parameters[k][v]['total_correct'] += entry['precent_correct']
 
